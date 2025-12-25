@@ -1,5 +1,5 @@
 from flask import Flask, request
-import requests, json, os, random, datetime
+import requests, os, random, datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -21,8 +21,10 @@ scope = [
 ]
 
 creds = ServiceAccountCredentials.from_json_keyfile_name(
-    "service_account.json", scope
+    "service_account.json",
+    scope
 )
+
 client = gspread.authorize(creds)
 sheet = client.open("Laundry Orders").sheet1
 
@@ -36,6 +38,7 @@ user_states = {}
 # ==========================
 def send_whatsapp_message(to, message, buttons=None):
     url = f"https://graph.facebook.com/v19.0/{PHONE_NUMBER_ID}/messages"
+
     headers = {
         "Authorization": f"Bearer {WHATSAPP_TOKEN}",
         "Content-Type": "application/json"
@@ -80,11 +83,37 @@ def webhook():
 
     try:
         value = data["entry"][0]["changes"][0]["value"]
+
         if "messages" not in value:
-            return "No message", 200
+            return "OK", 200
 
         message = value["messages"][0]
         from_number = message["from"]
+
+        # ======================
+        # BUTTON RESPONSE
+        # ======================
+        if "interactive" in message:
+            button_id = message["interactive"]["button_reply"]["id"]
+
+            if button_id == "slots":
+                send_whatsapp_message(
+                    from_number,
+                    "📅 *Available Slots*\n\n"
+                    "🟢 Morning: 9 AM – 12 PM\n"
+                    "🟢 Afternoon: 12 PM – 3 PM\n"
+                    "🟢 Evening: 3 PM – 6 PM\n\n"
+                    "Click *Book Laundry Service* to continue."
+                )
+
+            elif button_id == "book":
+                user_states[from_number] = {"step": "name"}
+                send_whatsapp_message(
+                    from_number,
+                    "👤 Please enter your *Full Name*:"
+                )
+
+            return "OK", 200
 
         # ======================
         # TEXT MESSAGE
@@ -93,44 +122,59 @@ def webhook():
             text = message["text"]["body"].strip().lower()
 
             # GREETING
-            if text in ["hi", "hello", "hai"]:
+            if text in ["hi", "hello", "hai", "hey"]:
                 buttons = [
                     {
                         "type": "reply",
-                        "reply": {"id": "slots", "title": "📅 Check Available Slots"}
+                        "reply": {
+                            "id": "slots",
+                            "title": "📅 Check Available Slots"
+                        }
                     },
                     {
                         "type": "reply",
-                        "reply": {"id": "book", "title": "🧺 Book Laundry Service"}
+                        "reply": {
+                            "id": "book",
+                            "title": "🧺 Book Laundry Service"
+                        }
                     }
                 ]
+
                 send_whatsapp_message(
                     from_number,
-                    "👋 Welcome to *Laundry Service!*\n\nHow can we help you today?",
+                    "👋 *Welcome to Laundry Service!*\n\n"
+                    "We provide fast & affordable laundry services.\n\n"
+                    "Please choose an option below 👇",
                     buttons
                 )
                 return "OK", 200
 
-            # STEP COLLECTION
+            # STEP FLOW
             if from_number in user_states:
                 state = user_states[from_number]
 
                 if state["step"] == "name":
-                    state["name"] = text
+                    state["name"] = text.title()
                     state["step"] = "mobile"
-                    send_whatsapp_message(from_number, "📞 Please enter your *Mobile Number*:")
+                    send_whatsapp_message(
+                        from_number,
+                        "📞 Please enter your *Mobile Number*:"
+                    )
                     return "OK", 200
 
                 if state["step"] == "mobile":
                     state["mobile"] = text
                     state["step"] = "address"
-                    send_whatsapp_message(from_number, "📍 Please enter your *Pickup Address*:")
+                    send_whatsapp_message(
+                        from_number,
+                        "📍 Please enter your *Pickup Address*:"
+                    )
                     return "OK", 200
 
                 if state["step"] == "address":
                     state["address"] = text
 
-                    order_id = f"LDRY-{random.randint(1000,9999)}"
+                    order_id = f"LDRY-{random.randint(1000, 9999)}"
                     time_now = datetime.datetime.now().strftime("%d-%m-%Y %H:%M")
 
                     sheet.append_row([
@@ -145,7 +189,7 @@ def webhook():
                     send_whatsapp_message(
                         from_number,
                         f"✅ *Order Confirmed!*\n\n"
-                        f"🆔 Order ID: {order_id}\n"
+                        f"🆔 Order ID: *{order_id}*\n"
                         f"👤 Name: {state['name']}\n"
                         f"📞 Mobile: {state['mobile']}\n"
                         f"📍 Address: {state['address']}\n\n"
@@ -154,26 +198,6 @@ def webhook():
 
                     del user_states[from_number]
                     return "OK", 200
-
-        # ======================
-        # BUTTON RESPONSE
-        # ======================
-        if "interactive" in message:
-            button_id = message["interactive"]["button_reply"]["id"]
-
-            if button_id == "slots":
-                send_whatsapp_message(
-                    from_number,
-                    "📅 *Available Slots Today*\n\n"
-                    "• 9 AM – 12 PM\n"
-                    "• 12 PM – 3 PM\n"
-                    "• 3 PM – 6 PM\n\n"
-                    "Click *Book Laundry Service* to continue."
-                )
-
-            if button_id == "book":
-                user_states[from_number] = {"step": "name"}
-                send_whatsapp_message(from_number, "👤 Please enter your *Full Name*:")
 
     except Exception as e:
         print("ERROR:", e)
