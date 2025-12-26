@@ -65,6 +65,7 @@ def send_whatsapp_message(to, message, buttons=None):
 
     requests.post(url, headers=headers, json=payload)
 
+
 # ==========================
 # META WEBHOOK VERIFY
 # ==========================
@@ -74,26 +75,29 @@ def verify():
         return request.args.get("hub.challenge")
     return "Verification failed", 403
 
+
 # ==========================
 # RECEIVE WHATSAPP MESSAGE
 # ==========================
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.json
+    print("FULL PAYLOAD:", data)
 
     try:
         value = data["entry"][0]["changes"][0]["value"]
 
-        if "messages" not in value:
+        messages = value.get("messages")
+        if not messages:
             return "OK", 200
 
-        message = value["messages"][0]
+        message = messages[0]
         from_number = message["from"]
 
         # ======================
         # BUTTON RESPONSE
         # ======================
-        if "interactive" in message:
+        if message.get("type") == "interactive":
             button_id = message["interactive"]["button_reply"]["id"]
 
             if button_id == "slots":
@@ -103,7 +107,7 @@ def webhook():
                     "🟢 Morning: 9 AM – 12 PM\n"
                     "🟢 Afternoon: 12 PM – 3 PM\n"
                     "🟢 Evening: 3 PM – 6 PM\n\n"
-                    "Click *Book Laundry Service* to continue."
+                    "Click *Book Laundry* to continue."
                 )
 
             elif button_id == "book":
@@ -118,7 +122,7 @@ def webhook():
         # ======================
         # TEXT MESSAGE
         # ======================
-        if "text" in message:
+        if message.get("type") == "text":
             text = message["text"]["body"].strip().lower()
 
             # GREETING
@@ -128,14 +132,14 @@ def webhook():
                         "type": "reply",
                         "reply": {
                             "id": "slots",
-                            "title": "📅 Check Available Slots"
+                            "title": "📅 Check Slots"
                         }
                     },
                     {
                         "type": "reply",
                         "reply": {
                             "id": "book",
-                            "title": "🧺 Book Laundry Service"
+                            "title": "🧺 Book Laundry"
                         }
                     }
                 ]
@@ -144,12 +148,14 @@ def webhook():
                     from_number,
                     "👋 *Welcome to Laundry Service!*\n\n"
                     "We provide fast & affordable laundry services.\n\n"
-                    "Please choose an option below 👇",
+                    "Please choose an option 👇",
                     buttons
                 )
                 return "OK", 200
 
-            # STEP FLOW
+            # ======================
+            # BOOKING FLOW
+            # ======================
             if from_number in user_states:
                 state = user_states[from_number]
 
@@ -203,6 +209,7 @@ def webhook():
         print("ERROR:", e)
 
     return "OK", 200
+
 
 # ==========================
 # RENDER PORT
